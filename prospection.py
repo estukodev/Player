@@ -25,7 +25,11 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 UA = {"User-Agent": "prospection-locale/1.0 (script personnel)"}
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = [  # serveurs miroirs, essayés dans l'ordre
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+]
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 AGENT_MODEL = "claude-haiku-5-5"  # "claude-sonnet-5-5" si tu veux plus de finesse
 
@@ -61,12 +65,16 @@ def requete_overpass(lat, lon, rayon_km):
         for f in filtres:
             blocs.append(f'nwr{f}["name"](around:{rayon_m},{lat},{lon});')
     query = f"[out:json][timeout:120];({''.join(blocs)});out center tags;"
-    for tentative in range(3):  # Overpass est parfois surchargé : on réessaie
-        r = requests.post(OVERPASS_URL, data={"data": query}, headers=UA, timeout=180)
-        if r.status_code == 200:
-            return r.json()["elements"]
+    for tentative in range(3):  # Overpass est parfois surchargé : on réessaie / on change de miroir
+        for url in OVERPASS_URLS:
+            try:
+                r = requests.post(url, data={"data": query}, headers=UA, timeout=180)
+                if r.status_code == 200:
+                    return r.json()["elements"]
+            except requests.RequestException:
+                pass
         time.sleep(5 * (tentative + 1))
-    r.raise_for_status()
+    sys.exit("Overpass injoignable (réseau ou serveurs saturés). Réessaie plus tard.")
 
 
 # ÉTAPE 4 — Normalisation : on transforme un élément OSM brut en dict propre.
